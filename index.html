@@ -10516,7 +10516,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   var scanning = false;
   var camTry = 0, camStream = null, camDevices = [], camIdx = -1;
   var CAM_OPTIONS = [
-    function () { return { video: { facingMode: { ideal: 'environment' } }, audio: false }; },
+    function () { return { video: { facingMode: { ideal: 'environment' }, frameRate: { ideal: 30 } }, audio: false }; },
     function () { return { video: true, audio: false }; },
     function () { return { video: { facingMode: 'user' }, audio: false }; }
   ];
@@ -10531,31 +10531,61 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     if (!scanning) { scanning = true; scanLoop(); }
     // אם אחרי 2.5 שניות עדיין אין תמונה (מסך שחור) – מנסים הגדרה אחרת
     var my = ++camTry;
+    // יש מכשירים שבהם המצלמה נסגרת מיד (track ended) – עוברים מיד לאפשרות הבאה
+    var tr = stream.getVideoTracks()[0];
+    if (tr) {
+      if (tr.readyState === 'ended') { setTimeout(function () { if (my === camTry) camFallback(); }, 0); return; }
+      tr.addEventListener('ended', function () { if (my === camTry && stream === camStream) camFallback(); });
+    }
+    // תמונה אמיתית – לא 2x2 ריק שחלק מהמכשירים מחזירים כשהמצלמה לא עובדת
+    function hasPicture() { return v.videoWidth > 16 && v.videoHeight > 16 && v.readyState >= 2; }
     setTimeout(function () {
       if (my !== camTry) return;
-      var ok = v.videoWidth > 0 && v.readyState >= 2 && !v.paused;
+      var ok = hasPicture() && !v.paused;
       if (!ok) { try { v.play(); } catch (e) {} }
       setTimeout(function () {
         if (my !== camTry) return;
-        if (v.videoWidth > 0 && v.readyState >= 2) return;
+        if (hasPicture()) return;
         camFallback(my);
       }, 1500);
     }, 2500);
   }
-  var fbStep = 0;
+  var fbStep = 0, devQueue = null;
   function camFallback() {
     fbStep++;
-    if (fbStep >= CAM_OPTIONS.length) {
-      camMsg('המצלמה נפתחה אבל אין תמונה.<br>סגרו אפליקציות אחרות שמשתמשות במצלמה, ופתחו את הדף ישירות ב-Chrome / Safari.<br>אפשר להמשיך עם חיפוש לפי שם.', true);
-      return;
-    }
+    if (fbStep >= CAM_OPTIONS.length) { tryNextDevice(); return; }
     openCamera(fbStep);
+  }
+  // אחרי שההגדרות הכלליות נכשלו – מנסים כל מצלמה במכשיר לפי מזהה (אחוריות קודם, "camera 0" לפני השאר)
+  function tryNextDevice() {
+    if (devQueue === null) {
+      devQueue = [];
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices.enumerateDevices().then(function (ds) {
+          var cams = ds.filter(function (d) { return d.kind === 'videoinput' && d.deviceId; });
+          function rank(d) { var l = (d.label || '').toLowerCase(), n = parseInt((l.match(/camera\s*(\d+)/) || [])[1], 10); return (/back|rear|environment/.test(l) ? 0 : 100) + (isNaN(n) ? 50 : n); }
+          cams.sort(function (a, b) { return rank(a) - rank(b); });
+          devQueue = cams.map(function (d) { return d.deviceId; });
+          tryNextDevice();
+        }).catch(function () { tryNextDevice(); });
+        return;
+      }
+    }
+    var id = devQueue.shift();
+    if (!id) { camNoPicture(); return; }
+    navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: id }, frameRate: { ideal: 30 } }, audio: false })
+      .then(function (st) { attachStream(st); })
+      .catch(function () { tryNextDevice(); });
+  }
+  function camNoPicture() {
+    camMsg('המצלמה נפתחה אבל אין תמונה.<br>סגרו אפליקציות אחרות שמשתמשות במצלמה, ופתחו את הדף ישירות ב-Chrome / Safari.<br>אפשר להשתמש בכפתור "סריקה בצילום" או בחיפוש לפי שם.', true);
   }
   function openCamera(i) {
     var cons = CAM_OPTIONS[i]();
     navigator.mediaDevices.getUserMedia(cons).then(function (st) { attachStream(st); })
       .catch(function (e) {
         if (i + 1 < CAM_OPTIONS.length && e && e.name !== 'NotAllowedError' && e.name !== 'SecurityError') { fbStep = i + 1; openCamera(i + 1); return; }
+        if (e && e.name !== 'NotAllowedError' && e.name !== 'SecurityError') { fbStep = CAM_OPTIONS.length; tryNextDevice(); return; }
         var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
         camMsg((denied ? 'אין גישה למצלמה.<br>אשרו שימוש במצלמה בהגדרות הדפדפן.' : 'לא ניתן לפתוח את המצלמה (' + ((e && e.name) || '') + ').<br>סגרו אפליקציות אחרות שמשתמשות במצלמה.') +
           '<br>אפשר להמשיך להשתמש בחיפוש לפי שם.', true);
@@ -10566,7 +10596,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       camMsg('הדפדפן לא מאפשר שימוש במצלמה בכתובת הזו.<br>יש לפתוח את הדף דרך כתובת https, ישירות ב-Chrome / Safari.', false); return;
     }
-    fbStep = 0; openCamera(0);
+    fbStep = 0; devQueue = null; openCamera(0);
   }
   // החלפת מצלמה (קדמית/אחורית/אחרות)
   function switchCamera() {
