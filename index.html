@@ -22,17 +22,17 @@ button{font:inherit;color:inherit;cursor:pointer}
 .hidden{display:none!important}
 
 /* ---------- header ---------- */
-.top{display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));
+.top{display:flex;align-items:center;gap:7px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));
   background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{flex:1;min-width:0}
-.brand b{display:block;font-size:17px;line-height:1.2}
-.brand small{display:block;color:var(--gold);font-size:12px;margin-top:2px;letter-spacing:.2px}
+.brand b{display:block;white-space:nowrap;font-size:16px;line-height:1.2}
+.brand small{display:block;white-space:nowrap;color:var(--gold);font-size:12px;margin-top:2px;letter-spacing:.2px}
 .count{display:flex;align-items:baseline;gap:5px;background:var(--panel2);border:1px solid var(--line);
   border-radius:999px;padding:6px 14px;font-variant-numeric:tabular-nums}
 .count b{font-size:20px;color:#fff}
 .count span{color:var(--muted);font-size:14px}
-.count small{color:var(--muted);font-size:12px;margin-inline-start:2px}
-.ibtn{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);
+.count small{display:none}
+.ibtn{width:38px;height:38px;flex:none;border-radius:12px;border:1px solid var(--line);background:var(--panel2);
   display:grid;place-items:center;flex:none}
 .ibtn:active{transform:scale(.95)}
 .ibtn svg{width:22px;height:22px;stroke:var(--text);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -141,6 +141,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   <div class="brand"><b>כניסה לאולם</b><small>משקיעים בבית לוד</small></div>
   <div class="count" title="נכנסו מתוך הרשומים"><b id="cDone">0</b><span>/</span><span id="cTotal">0</span><small>נכנסו</small></div>
   <button class="ibtn" id="soundBtn" aria-label="צליל"><svg viewBox="0 0 24 24" id="soundIcon"></svg></button>
+  <button class="ibtn" id="camBtn" aria-label="החלפת מצלמה"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.2"/></svg></button>
   <button class="ibtn" id="searchBtn" aria-label="חיפוש לפי שם"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
 </header>
 <div class="prog"><i id="progBar"></i></div>
@@ -10493,20 +10494,70 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     if (retry) $('retryCam').onclick = startCamera;
   }
   var scanning = false;
+  var camTry = 0, camStream = null, camDevices = [], camIdx = -1;
+  var CAM_OPTIONS = [
+    function () { return { video: { facingMode: { ideal: 'environment' } }, audio: false }; },
+    function () { return { video: true, audio: false }; },
+    function () { return { video: { facingMode: 'user' }, audio: false }; }
+  ];
+  function stopCam() {
+    if (camStream) { camStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); camStream = null; }
+    var v = $('cam'); try { v.pause(); } catch (e) {} v.srcObject = null;
+  }
+  function attachStream(stream, label) {
+    stopCam(); camStream = stream;
+    var v = $('cam'); v.muted = true; v.setAttribute('playsinline', ''); v.srcObject = stream;
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+    if (!scanning) { scanning = true; scanLoop(); }
+    // אם אחרי 2.5 שניות עדיין אין תמונה (מסך שחור) – מנסים הגדרה אחרת
+    var my = ++camTry;
+    setTimeout(function () {
+      if (my !== camTry) return;
+      var ok = v.videoWidth > 0 && v.readyState >= 2 && !v.paused;
+      if (!ok) { try { v.play(); } catch (e) {} }
+      setTimeout(function () {
+        if (my !== camTry) return;
+        if (v.videoWidth > 0 && v.readyState >= 2) return;
+        camFallback(my);
+      }, 1500);
+    }, 2500);
+  }
+  var fbStep = 0;
+  function camFallback() {
+    fbStep++;
+    if (fbStep >= CAM_OPTIONS.length) {
+      camMsg('המצלמה נפתחה אבל אין תמונה.<br>סגרו אפליקציות אחרות שמשתמשות במצלמה, ופתחו את הדף ישירות ב-Chrome / Safari.<br>אפשר להמשיך עם חיפוש לפי שם.', true);
+      return;
+    }
+    openCamera(fbStep);
+  }
+  function openCamera(i) {
+    var cons = CAM_OPTIONS[i]();
+    navigator.mediaDevices.getUserMedia(cons).then(function (st) { attachStream(st); })
+      .catch(function (e) {
+        if (i + 1 < CAM_OPTIONS.length && e && e.name !== 'NotAllowedError' && e.name !== 'SecurityError') { fbStep = i + 1; openCamera(i + 1); return; }
+        var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+        camMsg((denied ? 'אין גישה למצלמה.<br>אשרו שימוש במצלמה בהגדרות הדפדפן.' : 'לא ניתן לפתוח את המצלמה (' + ((e && e.name) || '') + ').<br>סגרו אפליקציות אחרות שמשתמשות במצלמה.') +
+          '<br>אפשר להמשיך להשתמש בחיפוש לפי שם.', true);
+      });
+  }
   function startCamera() {
     $('camMsg').classList.add('hidden');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      camMsg('הדפדפן לא מאפשר שימוש במצלמה בכתובת הזו.<br>יש לפתוח את הדף דרך כתובת https.', false); return;
+      camMsg('הדפדפן לא מאפשר שימוש במצלמה בכתובת הזו.<br>יש לפתוח את הדף דרך כתובת https, ישירות ב-Chrome / Safari.', false); return;
     }
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
-      .then(function (stream) {
-        var v = $('cam'); v.srcObject = stream;
-        return v.play().catch(function () {});
-      })
-      .then(function () { if (!scanning) { scanning = true; scanLoop(); } })
-      .catch(function () {
-        camMsg('אין גישה למצלמה.<br>אשרו שימוש במצלמה בהגדרות הדפדפן.<br>אפשר להמשיך להשתמש בחיפוש לפי שם.', true);
-      });
+    fbStep = 0; openCamera(0);
+  }
+  // החלפת מצלמה (קדמית/אחורית/אחרות)
+  function switchCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    navigator.mediaDevices.enumerateDevices().then(function (ds) {
+      camDevices = ds.filter(function (d) { return d.kind === 'videoinput'; });
+      if (camDevices.length < 2) { toast('אין מצלמה נוספת'); return; }
+      camIdx = (camIdx + 1) % camDevices.length;
+      return navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: camDevices[camIdx].deviceId } }, audio: false })
+        .then(function (st) { attachStream(st); toast('מצלמה ' + (camIdx + 1) + ' מתוך ' + camDevices.length); });
+    }).catch(function () { toast('החלפת מצלמה נכשלה'); });
   }
   function requestWake() { try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {} }
   document.addEventListener('visibilitychange', function () { if (!document.hidden && state.started) requestWake(); });
@@ -10554,6 +10605,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   function openSearch() { $('sheet').classList.remove('hidden'); $('q').value = ''; renderSearch(); setTimeout(function () { $('q').focus(); }, 60); }
   function closeSearch() { $('sheet').classList.add('hidden'); }
   $('searchBtn').onclick = openSearch;
+  $('camBtn').onclick = switchCamera;
   $('closeSearch').onclick = closeSearch;
   $('q').addEventListener('input', renderSearch);
 
