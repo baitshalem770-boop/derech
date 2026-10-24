@@ -60,6 +60,9 @@ button{font:inherit;color:inherit;cursor:pointer}
 #camMsg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
   padding:28px;text-align:center;background:rgba(11,18,32,.92);font-size:16px;line-height:1.5}
 #camMsg button{background:var(--gold);color:#241a00;border:0;border-radius:12px;padding:11px 22px;font-weight:700}
+#camMsg #bigPhoto{font-size:20px;padding:16px 30px;border-radius:16px;box-shadow:0 0 0 4px rgba(233,185,73,.25),0 6px 18px rgba(0,0,0,.4)}
+#camMsg #retryCam{background:transparent;color:#fff;border:1px solid var(--line);font-weight:600;padding:8px 18px;font-size:14px}
+#camMsg:not(.hidden) ~ #photoBtn{display:none}
 
 /* ---------- result panel ---------- */
 .result{position:relative;display:flex;align-items:center;gap:16px;min-height:132px;padding:16px 18px;
@@ -10509,8 +10512,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   }
   function camMsg(html, retry) {
     var m = $('camMsg');
-    m.innerHTML = '<div>' + html + '</div>' + (retry ? '<button id="retryCam">נסו שוב</button>' : '');
+    // כשאין קלט מהמצלמה – כפתור הצילום מוצג גדול במרכז (הכפתור הקטן מוסתר ב-CSS)
+    m.innerHTML = '<button id="bigPhoto" type="button">📷 צלמו את הברקוד</button><div>' + html + '</div>' + (retry ? '<button id="retryCam">נסו שוב את המצלמה</button>' : '');
     m.classList.remove('hidden');
+    $('bigPhoto').onclick = function () { $('photoBtn').click(); };
     if (retry) $('retryCam').onclick = startCamera;
   }
   var scanning = false;
@@ -10578,7 +10583,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       .catch(function () { tryNextDevice(); });
   }
   function camNoPicture() {
-    camMsg('המצלמה נפתחה אבל אין תמונה.<br>סגרו אפליקציות אחרות שמשתמשות במצלמה, ופתחו את הדף ישירות ב-Chrome / Safari.<br>אפשר להשתמש בכפתור "סריקה בצילום" או בחיפוש לפי שם.', true);
+    camMsg('המצלמה נפתחה אבל אין תמונה.<br>סגרו אפליקציות אחרות שמשתמשות במצלמה, ופתחו את הדף ישירות ב-Chrome / Safari.<br>אפשר לצלם את הברקוד בכפתור למעלה, או לחפש לפי שם.', true);
   }
   function openCamera(i) {
     var cons = CAM_OPTIONS[i]();
