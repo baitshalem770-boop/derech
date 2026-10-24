@@ -43,7 +43,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 /* ---------- camera ---------- */
 #stage{position:relative;flex:1;min-height:200px;background:#000;overflow:hidden}
-#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#cam,#pv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .scrim{position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(ellipse at center,transparent 38%,rgba(5,9,18,.55) 100%)}
 .frame{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
@@ -149,6 +149,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 <section id="stage">
   <video id="cam" playsinline muted autoplay></video>
+  <canvas id="pv"></canvas>
   <div class="scrim"></div>
   <div class="frame"><i></i><i></i><i></i><i></i><div class="line"></div></div>
   <div id="camMsg" class="hidden"></div>
@@ -10473,19 +10474,35 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     queueCheckin(code);
   }
   var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var pv = $('pv'), pctx = pv.getContext('2d');
+  var lastScanAt = 0, darkCount = 0;
+  // תצוגה: מציירים את הווידאו ל-canvas (עוקף מסך שחור של אלמנט video בכרום בנייד) + סריקה כל ~90ms
   function scanLoop() {
     var v = $('cam');
     if (v.readyState >= 2 && v.videoWidth) {
-      var s = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
-      canvas.width = Math.round(v.videoWidth * s); canvas.height = Math.round(v.videoHeight * s);
-      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-      try {
-        var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        var res = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-        if (res && res.data) onScan(res.data);
-      } catch (e) {}
+      var ps = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+      var pw = Math.round(v.videoWidth * ps), ph = Math.round(v.videoHeight * ps);
+      if (pv.width !== pw || pv.height !== ph) { pv.width = pw; pv.height = ph; }
+      try { pctx.drawImage(v, 0, 0, pw, ph); } catch (e) {}
+      var now = Date.now();
+      if (now - lastScanAt >= 90) {
+        lastScanAt = now;
+        var s = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+        canvas.width = Math.round(v.videoWidth * s); canvas.height = Math.round(v.videoHeight * s);
+        try {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // זיהוי תמונה שחורה: ממוצע בהירות של דגימה
+          var d = img.data, sum = 0, n = 0;
+          for (var i = 0; i < d.length; i += 4 * 97) { sum += d[i] + d[i + 1] + d[i + 2]; n += 3; }
+          if (n && sum / n < 4) { if (++darkCount === 40) camMsg('המצלמה פתוחה אבל מחזירה תמונה שחורה.<br>לחצו על כפתור החלפת מצלמה למעלה, או סגרו אפליקציות אחרות שמשתמשות במצלמה.<br>אפשר להמשיך עם חיפוש לפי שם.', true); }
+          else { if (darkCount >= 40) $('camMsg').classList.add('hidden'); darkCount = 0; }
+          var res = jsQR(d, img.width, img.height, { inversionAttempts: 'dontInvert' });
+          if (res && res.data) onScan(res.data);
+        } catch (e) {}
+      }
     }
-    setTimeout(function () { requestAnimationFrame(scanLoop); }, 90);
+    requestAnimationFrame(scanLoop);
   }
   function camMsg(html, retry) {
     var m = $('camMsg');
