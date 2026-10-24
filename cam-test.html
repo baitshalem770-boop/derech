@@ -5,7 +5,7 @@ button{font-size:17px;padding:12px 18px;border-radius:10px;border:0;background:#
 video,canvas{width:100%;max-height:40vh;background:#000;border:1px solid #334;border-radius:8px;object-fit:contain}
 pre{white-space:pre-wrap;word-break:break-word;background:#111a2e;padding:10px;border-radius:8px;font-size:13px;direction:ltr;text-align:left}</style></head><body>
 <h2>בדיקת מצלמה</h2>
-<button id="go">הפעלת מצלמה ובדיקה</button><br>
+<button id="go">הפעלת מצלמה ובדיקה</button> <button id="exp">ניסויים נוספים (לבטא)</button><br>
 <video id="v" playsinline muted autoplay></video>
 <p>תצוגה דרך canvas:</p><canvas id="c" width="320" height="240"></canvas>
 <p>העתיקו את הטקסט שלמטה ושלחו לי:</p><pre id="out">ממתין...</pre>
@@ -36,4 +36,47 @@ function run(i){
   });
 }
 document.getElementById('go').onclick=function(){L.length=2;run(0)};
+
+/* ===== ניסויים לעקיפת תקלה שבה המצלמה נסגרת מיד ===== */
+function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function probe(name,cons,opt){
+  opt=opt||{};log('--- '+name);var t0=Date.now();
+  return navigator.mediaDevices.getUserMedia(cons).then(function(st){
+    var t=st.getVideoTracks()[0];log('  label: '+t.label+' | state אחרי פתיחה: '+t.readyState);
+    t.addEventListener('ended',function(){log('  (נסגר אחרי '+(Date.now()-t0)+'ms)')});
+    var pre=opt.noVideo?wait(1500):Promise.resolve();
+    return pre.then(function(){
+      if(opt.noVideo)log('  בלי חיבור לווידאו, אחרי 1.5 שניות: '+t.readyState);
+      stopCur();cur=st;v.srcObject=st;var p=v.play();if(p&&p.catch)p.catch(function(e){log('  play(): '+e.name)});
+      return wait(2500);
+    }).then(function(){
+      var ok=v.videoWidth>16;log('  video: '+v.videoWidth+'x'+v.videoHeight+' | '+t.readyState+' | brightness '+brightness()+(ok?'  ✅ עובד':'  ❌'));
+      if(opt.photo&&window.ImageCapture&&t.readyState==='live'){
+        return new ImageCapture(t).grabFrame().then(function(b){log('  ImageCapture.grabFrame: '+b.width+'x'+b.height+' ✅')}).catch(function(e){log('  ImageCapture: '+e.name)});
+      }
+    }).then(function(){if(!opt.keep)stopCur();else cur=null;return st});
+  }).catch(function(e){log('  שגיאה: '+e.name+' - '+e.message)}).then(function(r){return wait(500).then(function(){return r})});
+}
+function experiments(){
+  L.length=2;log('Chrome: '+((navigator.userAgentData&&navigator.userAgentData.brands||[]).map(function(b){return b.brand+' '+b.version}).join(', ')));
+  var back=null;
+  var steps=[
+    function(){return probe('א. בלי לחבר לווידאו (האם נסגר מעצמו?)',{video:{facingMode:{ideal:'environment'}}},{noVideo:true})},
+    function(){return probe('ב. 30 פריימים מקסימום',{video:{facingMode:{ideal:'environment'},frameRate:{max:30}}})},
+    function(){return probe('ג. 15 פריימים מקסימום',{video:{facingMode:{ideal:'environment'},frameRate:{max:15}}})},
+    function(){return probe('ד. 1280x720',{video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}})},
+    function(){return probe('ה. 1920x1080',{video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}})},
+    function(){return probe('ו. 320x240',{video:{facingMode:{ideal:'environment'},width:{ideal:320},height:{ideal:240}}})},
+    function(){return navigator.mediaDevices.enumerateDevices().then(function(ds){
+      back=ds.filter(function(d){return d.kind==='videoinput'&&/camera 0/.test(d.label)})[0];
+      if(!back){log('--- ז. camera 0 לא נמצאה');return}
+      return probe('ז. camera 0 ישירות, 1280x720',{video:{deviceId:{exact:back.deviceId},width:{ideal:1280},height:{ideal:720}}});})},
+    function(){return probe('ח. ניסיון חוזר אחרי המתנה של 3 שניות',{video:{facingMode:{ideal:'environment'}}})},
+    function(){return probe('ט. פתיחה ראשונה ומשאירים פתוח',{video:true},{keep:true}).then(function(first){
+      return probe('ט2. פתיחה שנייה כשהראשונה עדיין פתוחה',{video:{facingMode:{ideal:'environment'}}},{photo:true}).then(function(){if(first)first.getTracks().forEach(function(t){t.stop()})});})},
+    function(){return probe('י. עם מיקרופון (audio:true)',{video:{facingMode:{ideal:'environment'}},audio:true})}
+  ];
+  var i=0;(function next(){if(i>=steps.length){log('סיום הניסויים');return}var f=steps[i++];(i===8?wait(3000):Promise.resolve()).then(f).then(next,next)})();
+}
+document.getElementById('exp').onclick=experiments;
 </script></body></html>
