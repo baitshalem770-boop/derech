@@ -43,6 +43,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 /* ---------- camera ---------- */
 #stage{position:relative;flex:1;min-height:200px;background:#000;overflow:hidden}
+#photoBtn{position:absolute;z-index:5;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(15,27,51,.88);color:#fff;border:1px solid var(--line);border-radius:22px;padding:9px 18px;font-size:14px;font-weight:600}
 #cam,#pv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .scrim{position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(ellipse at center,transparent 38%,rgba(5,9,18,.55) 100%)}
@@ -153,6 +154,8 @@ button{font:inherit;color:inherit;cursor:pointer}
   <div class="scrim"></div>
   <div class="frame"><i></i><i></i><i></i><i></i><div class="line"></div></div>
   <div id="camMsg" class="hidden"></div>
+  <button id="photoBtn" type="button">📷 סריקה בצילום</button>
+  <input id="photoIn" type="file" accept="image/*" capture="environment" hidden>
 </section>
 
 <section id="result" class="result idle" aria-live="polite">
@@ -10625,6 +10628,28 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
   $('camBtn').onclick = switchCamera;
   $('closeSearch').onclick = closeSearch;
   $('q').addEventListener('input', renderSearch);
+
+  /* ===== גיבוי: צילום תמונה של הברקוד (עובד גם כשהמצלמה החיה לא נפתחת) ===== */
+  $('photoBtn').onclick = function () { $('photoIn').value = ''; $('photoIn').click(); };
+  $('photoIn').onchange = function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    toast('מעבד תמונה...');
+    var img = new Image(), url = URL.createObjectURL(f);
+    img.onload = function () {
+      try {
+        var sc = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        var c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc);
+        var x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, c.width, c.height);
+        var d = x.getImageData(0, 0, c.width, c.height);
+        var r = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+        if (r && r.data) { var code = extractCode(r.data); if (code) { delete state.cooldown[code]; } onScan(r.data); }
+        else { toast('לא זוהה ברקוד בתמונה – נסו לצלם שוב מקרוב'); }
+      } catch (e) { toast('שגיאה בעיבוד התמונה'); }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = function () { toast('לא ניתן לפתוח את התמונה'); URL.revokeObjectURL(url); };
+    img.src = url;
+  };
 
   /* ===== מסך פתיחה ===== */
   function showStart(err) {

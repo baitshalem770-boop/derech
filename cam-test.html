@@ -1,0 +1,33 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>בדיקת מצלמה</title>
+<style>body{font-family:Arial,sans-serif;margin:0;padding:14px;background:#0b1220;color:#e5e7eb}
+button{font-size:17px;padding:12px 18px;border-radius:10px;border:0;background:#e9b949;color:#241a00;font-weight:700;margin:4px 0}
+video,canvas{width:100%;max-height:40vh;background:#000;border:1px solid #334;border-radius:8px;object-fit:contain}
+pre{white-space:pre-wrap;word-break:break-word;background:#111a2e;padding:10px;border-radius:8px;font-size:13px;direction:ltr;text-align:left}</style></head><body>
+<h2>בדיקת מצלמה</h2>
+<button id="go">הפעלת מצלמה ובדיקה</button><br>
+<video id="v" playsinline muted autoplay></video>
+<p>תצוגה דרך canvas:</p><canvas id="c" width="320" height="240"></canvas>
+<p>העתיקו את הטקסט שלמטה ושלחו לי:</p><pre id="out">ממתין...</pre>
+<script>
+var out=document.getElementById('out'),L=[];function log(m){L.push(m);out.textContent=L.join('\n');}
+log('UA: '+navigator.userAgent);log('secure: '+window.isSecureContext+' | '+location.protocol);
+log('mediaDevices: '+!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia));
+var v=document.getElementById('v'),c=document.getElementById('c'),x=c.getContext('2d');
+var tries=[['environment-ideal',{video:{facingMode:{ideal:'environment'}},audio:false}],['video:true',{video:true,audio:false}],['user',{video:{facingMode:'user'},audio:false}]];
+function brightness(){try{c.width=v.videoWidth||320;c.height=v.videoHeight||240;x.drawImage(v,0,0,c.width,c.height);var d=x.getImageData(0,0,c.width,c.height).data,s=0,n=0;for(var i=0;i<d.length;i+=4*97){s+=d[i]+d[i+1]+d[i+2];n+=3}return Math.round(s/n)}catch(e){return 'err '+e.name}}
+function run(i){
+  if(i>=tries.length){log('סיום');return}
+  var name=tries[i][0];log('--- ניסיון '+(i+1)+': '+name);
+  navigator.mediaDevices.getUserMedia(tries[i][1]).then(function(st){
+    var t=st.getVideoTracks()[0];log('stream OK | label: '+t.label+' | state: '+t.readyState+' | muted: '+t.muted);
+    try{log('settings: '+JSON.stringify(t.getSettings()))}catch(e){}
+    v.srcObject=st;var p=v.play();if(p&&p.catch)p.catch(function(e){log('play() error: '+e.name+' '+e.message)});
+    setTimeout(function(){log('video: '+v.videoWidth+'x'+v.videoHeight+' | readyState '+v.readyState+' | paused '+v.paused+' | brightness '+brightness());
+      navigator.mediaDevices.enumerateDevices().then(function(ds){log('cameras: '+ds.filter(function(d){return d.kind==='videoinput'}).length)});
+      setTimeout(function(){log('אחרי 3 שניות: brightness '+brightness());},3000);
+    },1500);
+  }).catch(function(e){log('שגיאה: '+e.name+' - '+e.message);setTimeout(function(){run(i+1)},300)});
+}
+document.getElementById('go').onclick=function(){L.length=2;run(0)};
+</script></body></html>
